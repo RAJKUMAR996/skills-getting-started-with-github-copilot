@@ -12,6 +12,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      // Reset activity select (avoid duplicating options on refresh)
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -25,7 +27,63 @@ document.addEventListener("DOMContentLoaded", () => {
           <p>${details.description}</p>
           <p><strong>Schedule:</strong> ${details.schedule}</p>
           <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          <div class="participants-section">
+            <p><strong>Participants (${details.participants.length}):</strong></p>
+          </div>
         `;
+
+        // Build participants list with delete buttons
+        const participantsSection = activityCard.querySelector('.participants-section');
+        const ul = document.createElement('ul');
+        ul.className = 'participants-list';
+
+        details.participants.forEach(participant => {
+          const li = document.createElement('li');
+          li.className = 'participant-item';
+
+          const span = document.createElement('span');
+          span.className = 'participant-label';
+          span.textContent = participant;
+
+          const btn = document.createElement('button');
+          btn.className = 'delete-btn';
+          btn.title = 'Unregister participant';
+          btn.innerHTML = '&times;';
+
+          btn.addEventListener('click', async () => {
+            try {
+              const res = await fetch(
+                `/activities/${encodeURIComponent(name)}/unregister?email=${encodeURIComponent(participant)}`,
+                { method: 'DELETE' }
+              );
+              const result = await res.json();
+              if (res.ok) {
+                messageDiv.textContent = result.message;
+                messageDiv.className = 'message success';
+                messageDiv.classList.remove('hidden');
+                // Refresh list
+                fetchActivities();
+              } else {
+                messageDiv.textContent = result.detail || 'Failed to unregister participant';
+                messageDiv.className = 'message error';
+                messageDiv.classList.remove('hidden');
+              }
+              setTimeout(() => messageDiv.classList.add('hidden'), 5000);
+            } catch (error) {
+              console.error('Error unregistering participant:', error);
+              messageDiv.textContent = 'Failed to unregister. Please try again.';
+              messageDiv.className = 'message error';
+              messageDiv.classList.remove('hidden');
+              setTimeout(() => messageDiv.classList.add('hidden'), 5000);
+            }
+          });
+
+          li.appendChild(span);
+          li.appendChild(btn);
+          ul.appendChild(li);
+        });
+
+        participantsSection.appendChild(ul);
 
         activitiesList.appendChild(activityCard);
 
@@ -39,6 +97,79 @@ document.addEventListener("DOMContentLoaded", () => {
       activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
       console.error("Error fetching activities:", error);
     }
+  }
+
+  // Helper: add a participant to the DOM for a given activity card (if present)
+  function addParticipantToCard(activityName, participantEmail) {
+    // Find activity card by matching its h4 text
+    const cards = Array.from(activitiesList.querySelectorAll('.activity-card'));
+    const card = cards.find(c => {
+      const h4 = c.querySelector('h4');
+      return h4 && h4.textContent.trim() === activityName;
+    });
+
+    if (!card) return; // card not in DOM (unlikely)
+
+    const ul = card.querySelector('.participants-list');
+    if (!ul) {
+      // create the list if for some reason it's missing
+      const participantsSection = card.querySelector('.participants-section') || card;
+      const newUl = document.createElement('ul');
+      newUl.className = 'participants-list';
+      participantsSection.appendChild(newUl);
+      // continue with that
+    }
+
+    const targetUl = card.querySelector('.participants-list');
+
+    // avoid duplicates
+    if (Array.from(targetUl.querySelectorAll('.participant-label')).some(s => s.textContent === participantEmail)) {
+      return;
+    }
+
+    const li = document.createElement('li');
+    li.className = 'participant-item';
+
+    const span = document.createElement('span');
+    span.className = 'participant-label';
+    span.textContent = participantEmail;
+
+    const btn = document.createElement('button');
+    btn.className = 'delete-btn';
+    btn.title = 'Unregister participant';
+    btn.innerHTML = '&times;';
+
+    btn.addEventListener('click', async () => {
+      try {
+        const res = await fetch(
+          `/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(participantEmail)}`,
+          { method: 'DELETE' }
+        );
+        const result = await res.json();
+        if (res.ok) {
+          messageDiv.textContent = result.message;
+          messageDiv.className = 'message success';
+          messageDiv.classList.remove('hidden');
+          // remove the list item locally
+          li.remove();
+        } else {
+          messageDiv.textContent = result.detail || 'Failed to unregister participant';
+          messageDiv.className = 'message error';
+          messageDiv.classList.remove('hidden');
+        }
+        setTimeout(() => messageDiv.classList.add('hidden'), 5000);
+      } catch (error) {
+        console.error('Error unregistering participant:', error);
+        messageDiv.textContent = 'Failed to unregister. Please try again.';
+        messageDiv.className = 'message error';
+        messageDiv.classList.remove('hidden');
+        setTimeout(() => messageDiv.classList.add('hidden'), 5000);
+      }
+    });
+
+    li.appendChild(span);
+    li.appendChild(btn);
+    targetUl.appendChild(li);
   }
 
   // Handle form submission
@@ -60,8 +191,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (response.ok) {
         messageDiv.textContent = result.message;
-        messageDiv.className = "success";
+        messageDiv.className = 'message success';
         signupForm.reset();
+        // Update the UI immediately and refresh the activities list
+        addParticipantToCard(activity, email);
+        fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
